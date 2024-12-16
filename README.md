@@ -254,3 +254,4 @@ Each assistant, whether custom-built or pre-configured, has integrated real-time
 - **Clean Architecture**: For structuring the application.# agent4hire_backend
 # agent4hire_backend
 # agent4hire_backend
+# agent4hire_backend
