@@ -1,0 +1,49 @@
+{
+  "timestamp": "2024-12-08 21:46:02.082913",
+  "step": "Create campaign objectives",
+  "status": "failure",
+  "error_message": "Low confidence score after retries.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:46:49.737783",
+  "step": "Define target audience",
+  "status": "failure",
+  "error_message": "Missing user input for API 'google_services_api'.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:47:13.308481",
+  "step": "Design A/B test variants",
+  "status": "failure",
+  "error_message": "Low confidence score after retries.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:47:43.713318",
+  "step": "Setup experiment metrics",
+  "status": "failure",
+  "error_message": "Missing user input for API 'google_services_api'.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:48:39.098439",
+  "step": "Analyze_Search_Data_for_AB_Testing",
+  "status": "failure",
+  "error_message": "Missing user input for API 'google_services_api'.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:49:08.796405",
+  "step": "Monitor test results",
+  "status": "failure",
+  "error_message": "Low confidence score after retries.",
+  "execution_time": null
+}
+{
+  "timestamp": "2024-12-08 21:49:56.713720",
+  "step": "Analyze and report outcomes",
+  "status": "failure",
+  "error_message": "Missing user input for API 'google_services_api'.",
+  "execution_time": null
+}
