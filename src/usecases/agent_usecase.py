@@ -1,6 +1,8 @@
 import json
 import os
 import uuid
+
+from proto.message import re
 from infrastructure.llm.open_ai_llm import OpenAiLLMService
 from infrastructure.llm.open_ai_schemas import BooleanSchema, StringSchema, ArraySchema, AnswersScehma, KpiSchema, ReportSchema, ModuleSchema, GoalSchema, SubGoalSchema, WorkstreamSchema, subgoals_schema, workstreams_schema, goals_schema, report_schema, modules_schema
 from domain.models.agent import Agent
@@ -11,6 +13,9 @@ from domain.models.sub_goal import SubGoal
 from domain.models.workstream import Workstream
 from domain.models.self_reflection import SelfReflection
 from domain.models.skill import Skill
+from domain.models.tag import Tags
+from domain.models.trait import Traits
+from domain.models.category import Category, AGENT_CATEGORIES
 from infrastructure.llm.llm_service import LLMService
 from infrastructure.repositories.agent_repository import AgentRepository
 from infrastructure.repositories.api_repository import APIRepository
@@ -18,7 +23,10 @@ from infrastructure.repositories.goal_repository import GoalRepository
 from infrastructure.repositories.sub_goal_repository import SubGoalRepository
 from infrastructure.repositories.workstream_repository import WorkstreamRepository
 from infrastructure.repositories.self_reflection_repository import SelfReflectionRepository
+from infrastructure.repositories.tags_repository import TagsRepository
+from infrastructure.repositories.trait_repository import TraitsRepository
 from infrastructure.repositories.skill_repository import SkillRepository
+from infrastructure.repositories.category_repository import CategoryRepository
 from infrastructure.scheduling_service import SchedulingService
 from infrastructure.embedding_service import EmbeddingService
 from google.cloud import run_v2
@@ -134,7 +142,11 @@ class AgentUsecase:
                  scheduling_service: SchedulingService,
                  embedding_service: EmbeddingService,
                  self_reflection_repository: SelfReflectionRepository,
-                 skill_repository: SkillRepository):
+                 skill_repository: SkillRepository,
+                 tags_repository: TagsRepository,
+                 traits_repository: TraitsRepository,
+                 category_repository: CategoryRepository):
+
         self.llm_service = llm_service
         self.api_repository = api_repository
         self.agent_repository = agent_repository
@@ -145,6 +157,9 @@ class AgentUsecase:
         self.embedding_service = embedding_service
         self.self_reflection_repository = self_reflection_repository
         self.skill_repository = skill_repository
+        self.tags_repository = tags_repository
+        self.traits_repository = traits_repository
+        self.category_repository = category_repository  
 
     def _get_relevant_entities(self, query: str, entity_type: str) -> List[Dict]:
         """Retrieve relevant entities from the vector database based on a query and entity type."""
@@ -760,7 +775,8 @@ class AgentUsecase:
         system_instruction = """You are an AI assistant designed to help users generate skills for an AI agent."""
         query = f"""generate a list of skills that you think this AI {role} should have. These skills should be relevant to the role and help achieve the specified goals.
         specific needs : {specific_needs}
-        Return your response as a JSON list of skill strings according to the response schema provided.
+        self reflection : {self_reflection}
+        Return your response as a JSON list of skill strings according to the response schema provided and makesure its length is not morethan 6.
         """
 
         response_schema = ArraySchema
@@ -780,16 +796,107 @@ class AgentUsecase:
         #     self.skill_repository.create_skill(Skill(id=uuid.uuid4().hex, agent_id=agent_id, name=skill))
         
         return response.array
+
+    def generate_traits(self, role, specific_needs, self_reflection):
+        specific_needs = ','.join(specific_needs)
+        system_instruction = """You are an AI assistant designed to help users generate traits for an AI agent."""
+        query = f"""generate a list of traits that you think this AI {role} should have. These traits should be relevant to the role and help achieve the specified goals.
+        specific needs : {specific_needs}
+        self reflection : {self_reflection} 
+        Return your response as a JSON list of trait strings according to the response schema provided and makesure its length is not morethan 4.
+        """
+
+        response_schema = ArraySchema
+        traits_string = []
+        max_retries = 5
+                
+        response = self.llm_service.generate_content_with_Structured_schema(
+            system_instruction=system_instruction,
+            query=query,
+            response_schema=response_schema
+        )
             
+        print("response", response.array)
+        
+        return response.array
+    
+    
+    def generate_tags(self, role, specific_needs, self_reflection):
+        specific_needs = ','.join(specific_needs)
+        system_instruction = """You are an AI assistant designed to help users generate tags for an AI agent."""
+        query = f"""generate a list of tags that you think this AI {role} should have. These tags should be relevant to the role and help achieve the specified goals.
+        specific needs : {specific_needs}
+        self reflection : {self_reflection} 
+        Return your response as a JSON list of tag strings according to the response schema provided and makesure its length is not morethan 5.
+        """
+
+        response_schema = ArraySchema
+        tags_string = []
+        max_retries = 5
+                
+        response = self.llm_service.generate_content_with_Structured_schema(
+            system_instruction=system_instruction,
+            query=query,
+            response_schema=response_schema
+        )
+            
+        print("response", response.array)
+        
+        return response.array
+            
+
+    def generate_category(self, role: str, traits: List[str], skills: List[str]) -> str:
+        """Generate the most suitable category for the agent based on its role, traits, and skills."""
+        system_instruction = """You are an AI assistant designed to categorize AI agents into predefined categories."""
+        
+        # Get categories from database
+        categories = self.category_repository.get_all_categories()
+        categories_str = "\n".join([f"- {cat.name}: {cat.description}" for cat in categories])
+        
+        query = f"""Based on the following agent characteristics, select the most suitable category from the list below.
+        
+        Agent Role: {role}
+        Traits: {', '.join(traits)}
+        Skills: {', '.join(skills)}
+        
+        Available Categories:
+        {categories_str}
+        
+        Return only the category name that best matches this agent's characteristics."""
+        
+        response_schema = StringSchema
+
+        response = self.llm_service.generate_content_with_Structured_schema(
+            system_instruction=system_instruction,
+            query=query,
+            response_schema=response_schema
+        )
+        
+        print('Categories: ', categories)
+        print('Response: ', response )
+        
+        
+        # Get the string value from the response and clean it up
+        selected_category_name = response.string.strip()
+        
+        print('Selected Category Name: ', selected_category_name)
+        
+        # Find the matching category from database
+        for category in categories:
+            if category.name.lower() == selected_category_name.lower():
+                return category.id  # Return category ID instead of name
+        
+        # If no exact match, return the first category's ID as default
+        return categories[0].name if categories else None
 
     def create_agent(self, agent: Agent, goals: list[Goal],
                      sub_goals: list[SubGoal],
-                     workstreams: list[Workstream],skills: list[Skill],agent_id: str) -> None:
+                     workstreams: list[Workstream], skills, agent_id: str, traits, tags) -> None:
         try:
             for workstream in workstreams:
                 self.workstream_repository.create_workstream(workstream)
-
             print('workstreams stored in db')
+
             for sub_goal in sub_goals:
                 self.sub_goal_repository.create_sub_goal(sub_goal)
             print('sub goals stored in db')
@@ -798,9 +905,19 @@ class AgentUsecase:
                 self.goal_repository.create_goal(goal)
             print('goals stored in db')
             
-            for skill in skills:
-                self.skill_repository.create_skill(Skill(id=uuid.uuid4().hex, agent_id=agent_id, name=skill))
+            self.skill_repository.create_skill(Skill(id=uuid.uuid4().hex, agent_id=agent_id, skill=skills))
             print('Skills stored in db')
+            
+            self.traits_repository.create_trait(Traits(id=uuid.uuid4().hex, agent_id=agent_id, traits=traits))
+            print('Traits stored in db')
+            
+            self.tags_repository.create_tag(Tags(id=uuid.uuid4().hex, agent_id=agent_id, tags=tags))
+            print('Tags stored in db')
+            
+            # Set the category_id in the agent model
+            category_id = self.generate_category(agent.role, traits, skills)
+            agent.category_id = category_id
+            print('Category ID set in agent model')
 
             self.agent_repository.create_agent(agent)
             print('agent stored in db')
@@ -1062,3 +1179,42 @@ class AgentUsecase:
             return skills
         except Exception as e:
             raise RuntimeError(f"Error fetching skills: {str(e)}")
+    
+    def get_skills_by_agent_id(self, agent_id: str) -> List[Skill]:
+        try:
+            skills = self.skill_repository.get_skills_by_agent_id(agent_id)
+            return skills
+        except Exception as e:
+            raise RuntimeError(f"Error fetching skills: {str(e)}")
+        
+        
+
+    def get_traits(self) -> List[Traits]:
+        """Fetch all traits from the repository."""
+        try:
+            traits = self.traits_repository.get_all_traits()
+            return traits
+        except Exception as e:
+            raise RuntimeError(f"Error fetching traits: {str(e)}")
+    
+    def get_traits_by_agent_id(self, agent_id: str) -> List[Traits]:
+        try:
+            traits = self.traits_repository.get_traits_by_agent_id(agent_id)
+            return traits
+        except Exception as e:
+            raise RuntimeError(f"Error fetching traits: {str(e)}")
+
+    def get_tags(self) -> List[Tags]:
+        """Fetch all tags from the repository."""
+        try:
+            tags = self.tags_repository.get_all_tags()
+            return tags
+        except Exception as e:
+            raise RuntimeError(f"Error fetching tags: {str(e)}")
+    
+    def get_tags_by_agent_id(self, agent_id: str) -> List[Tags]:
+        try:
+            tags = self.tags_repository.get_tags_by_agent_id(agent_id)
+            return tags
+        except Exception as e:
+            raise RuntimeError(f"Error fetching tags: {str(e)}")

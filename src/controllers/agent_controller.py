@@ -30,6 +30,8 @@ class AgentController:
         data = request.json
         role = data.get('role', None)
         description = data.get('description', None)
+        
+        print(role, description)
 
         if role is None or description is None:
             return jsonify({
@@ -98,6 +100,9 @@ class AgentController:
     def get_additional_questions(self):
         data = request.json
         answers = data.get('answers', None)
+        
+        
+        print(answers, "answers")
         
         if answers is None:
             return jsonify({
@@ -222,9 +227,11 @@ class AgentController:
         
     def get_goals(self):
         try:
+            print(session, "session in goals")
             role = session['role']
             report = session['report']
             self_reflection_id = session.get('self_reflection_id')
+            print("Heloo Goal")
             if self_reflection_id is None:
                 return jsonify({'error': 'Session expired or invalid'}), 400
             self_reflection = self.self_reflection_repository.get_self_reflection(self_reflection_id)
@@ -249,11 +256,37 @@ class AgentController:
             return jsonify({
                 'error': str(e)
                 }), 500
+    
+    def get_traits(self):
+        try:
+            #get traits from agent_usecase
+            traits = self.agent_usecase.get_traits()
+            return jsonify([trait.to_dict() for trait in traits]), 200
+
+        except Exception as e:
+            return jsonify({
+                'error': str(e)
+                }), 500
+    
+    def get_tags(self):
+        try:
+            #get tags from agent_usecase
+            tags = self.agent_usecase.get_tags()
+            return jsonify([tag.to_dict() for tag in tags]), 200
+
+        except Exception as e:
+            return jsonify({
+                'error': str(e)
+                }), 500
             
             
 
     def create_agent(self):
         data = request.json
+        
+        print(request.json , "lllllllllllllllll")
+        
+        print(data, "data")
 
         goals_dict = data.get('goals', None)
         if goals_dict is None:
@@ -264,6 +297,7 @@ class AgentController:
         try:
             id = uuid.uuid4().hex
             user_id = uuid.uuid4().hex 
+            print(session['role'], session['report'], "sessions")
             role = session['role']
             report = session['report']
             description = {
@@ -274,6 +308,7 @@ class AgentController:
             agent = Agent(id=id, user_id=user_id, role=role, description=description, kpis=agent_kpis)
             
             # # Generate skills
+            
 
             goals = []
             for goal_dict in goals_dict:
@@ -289,8 +324,18 @@ class AgentController:
             self_reflection = self.self_reflection_repository.get_self_reflection(self_reflection_id)
             
             
+            # Generate skills
             skills = self.agent_usecase.generate_skills(role, report['specific_needs'],self_reflection,id)
             print(len(skills), 'skills generated')
+            
+            
+            #Generate traits
+            traits = self.agent_usecase.generate_traits(role, report['specific_needs'],self_reflection)
+            print(len(traits), 'traits generated')
+            
+            #Generate tags
+            tags = self.agent_usecase.generate_tags(role, report['specific_needs'],self_reflection)
+            print(len(tags), 'tags generated')
             
             # Generate relevant APIs
             relevant_apis = self.agent_usecase.generate_relevant_apis(role,description )
@@ -311,7 +356,7 @@ class AgentController:
             
 
             # Create the agent with goals, sub_goals, workstreams, and skills
-            self.agent_usecase.create_agent(agent, goals, sub_goals, workstreams, skills,id)
+            self.agent_usecase.create_agent(agent, goals, sub_goals, workstreams, skills,id,traits,tags)
 
             # domain_name = 'https://' + request.host
             # print(domain_name)
@@ -401,6 +446,27 @@ class AgentController:
         try:
             agents = self.agent_usecase.get_agents()
             return jsonify([agent.to_dict() for agent in agents]), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    def get_tags_by_agent_id(self, agent_id: str):
+        try:
+            tags = self.agent_usecase.get_tags_by_agent_id(agent_id)
+            return jsonify([tag.to_dict() for tag in tags]), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    def get_skills_by_agent_id(self, agent_id: str):
+        try:
+            skills = self.agent_usecase.get_skills_by_agent_id(agent_id)
+            return jsonify([skill.to_dict() for skill in skills]), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    def get_traits_by_agent_id(self, agent_id: str):
+        try:
+            traits = self.agent_usecase.get_traits_by_agent_id(agent_id)
+            return jsonify([trait.to_dict() for trait in traits]), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         

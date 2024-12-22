@@ -36,7 +36,7 @@ class SkillRepository:
     def get_skills_by_agent_id(self, agent_id: str) -> list[Skill]:
         try:
             skills = self.database.collection(self._collection_name).where(
-                "agents", "array_contains", agent_id).stream()
+                 "agent_id", "==", agent_id).stream()
             return [Skill.from_dict(skill.to_dict()) for skill in skills]
         except Exception as e:
             raise e
