@@ -15,13 +15,26 @@ class AgentRepository:
         except Exception as e:
             raise e
         
-    def get_agent(self, agent_id: str) -> Agent:
+    def get_by_id(self, agent_id: str) -> Agent:
+        """
+        Retrieve an agent by its ID.
+        
+        Args:
+            agent_id (str): The ID of the agent to retrieve
+            
+        Returns:
+            Agent: The agent object if found
+            
+        Raises:
+            Exception: If the agent is not found or if there's a database error
+        """
         try:
-            print("databaseeeeee")
-            agent = self.database.collection(self._collection_name).document(agent_id).get()
-            return Agent.from_dict(agent.to_dict())
+            agent_doc = self.database.collection(self._collection_name).document(agent_id).get()
+            if not agent_doc.exists:
+                raise Exception(f"Agent with ID {agent_id} not found")
+            return Agent.from_dict(agent_doc.to_dict())
         except Exception as e:
-            raise e
+            raise Exception(f"Error retrieving agent: {str(e)}")
     
     def get_all_agents(self) -> list:
         try:
@@ -51,3 +64,4 @@ class AgentRepository:
             return agent_performance.to_dict()
         except Exception as e:
             raise e
+    

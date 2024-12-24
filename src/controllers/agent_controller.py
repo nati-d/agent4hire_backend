@@ -27,6 +27,9 @@ class AgentController:
         self.self_reflection_repository = self_reflection_repository
 
     def get_questions(self):
+        print("\n=== Starting get_questions ===")
+        print("Session state at start:", dict(session))
+            
         data = request.json
         role = data.get('role', None)
         description = data.get('description', None)
@@ -92,7 +95,7 @@ class AgentController:
                 'questions': questions
                 }), 200
         except Exception as e:
-            session.clear()
+            # session.clear()
             return jsonify({
                 'error': str(e)
                 }), 500

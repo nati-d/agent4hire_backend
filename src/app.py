@@ -1,3 +1,4 @@
+from datetime import timedelta
 from infrastructure.repositories.alert_repository import AlertRepository
 from infrastructure.llm.open_ai_llm import OpenAiLLMService
 from infrastructure.repositories.chat_history_repository import ChatHistoryRepository
@@ -15,8 +16,12 @@ from infrastructure.repositories.workstream_repository import WorkstreamReposito
 from infrastructure.repositories.self_reflection_repository import SelfReflectionRepository
 from usecases.functionality_usecase import AgentFunctionalityUsecase
 from controllers.agent_controller import AgentController
-from infrastructure.llm.llm_service import LLMService
+from controllers.group_chat_controller import GroupChatController
 from infrastructure.repositories.agent_repository import AgentRepository
+from infrastructure.repositories.group_chat_repository import GroupChatRepository
+from usecases.agent_usecase import AgentUsecase
+from usecases.group_chat_usecase import GroupChatUsecase
+from infrastructure.llm.llm_service import LLMService
 from infrastructure.repositories.api_repository import APIRepository
 from infrastructure.scheduling_service import SchedulingService
 from infrastructure.embedding_service import EmbeddingService
@@ -48,20 +53,33 @@ CORS(app,
      expose_headers=["Content-Type", "Authorization"],
      allow_headers=["Content-Type", "Authorization"])
 
-app.config['SESSION_PERMANENT'] = True
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_KEY'] = '123456789012345678901234567890123'
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Allows cross-site cookies
-Session(app)
-app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+
 
 llm_service = LLMService(model_name="gemini-1.5-flash")
 open_ai_service = OpenAiLLMService(model_name="gpt-4o-2024-08-06",
                                    api_key=os.getenv('OPENAI_API_KEY'))
 
+# Session Configuration
+app.config['SESSION_PERMANENT'] = True  
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = './.flask_session/'  
+app.config['SESSION_COOKIE_SECURE'] = False  
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# CSRF Protection
+app.config['WTF_CSRF_ENABLED'] = True
+app.config['WTF_CSRF_TIME_LIMIT'] = 300  # 5 minutes (300 seconds)
+app.config['WTF_CSRF_SSL_STRICT'] = False  # Set to True in production
+app.config['WTF_CSRF_CHECK_DEFAULT'] = True
+
+Session(app)
+
 # repositories
 api_repo = APIRepository()
 agent_repo = AgentRepository()
+group_chat_repo = GroupChatRepository()
 alert_repo = AlertRepository()
 goal_repo = GoalRepository()
 sub_goal_repo = SubGoalRepository()
@@ -101,38 +119,30 @@ chat_bot_controller = ChatbotController(chat_bot_usecase)
 category_usecase = CategoryUsecase(category_repo, open_ai_service)
 category_controller = CategoryController(category_usecase)
 
-step_limit = 1
+group_chat_usecase = GroupChatUsecase(open_ai_service, agent_repo, group_chat_repo)
+group_chat_controller = GroupChatController(group_chat_usecase)
+
+step_limit = 2
 
 # app.register_blueprint(skills_bp)
 
 @app.route('/agents/create', methods=['POST'])
 @cross_origin(supports_credentials=True)
-# @cross_origin()
 def create_agent_step1():
     try:
-        
-        print(request.json, "request.json")
-        print('yes' if 'answers' in request.json else 'no')
-        print(session, "session very first")
         # Only clear session if this is a new agent creation request
         if not request.json or 'answers' not in request.json:
-            print('fffffffffffffff')
             session.clear()
             session['step'] = 0
         
         step = session.get('step', 0)
-        print(step, "steps")
-        print(session, "session first")
         answers = request.json.get('answers', []) if request.json else []
-        # print('answers', answers)
         response = None
         print(f"Current step: {step}, Answers received: {len(answers)}")
 
         if step == 0:
-            print('kkkkkkkkkkkkkkkkkk')
             response = agent_controller.get_questions()
         elif step < step_limit:
-            print(';;;;;;;;;;;;;;;;;;;')
             if not answers:
                 return jsonify({"error": "No answers provided"}), 400
             # Store answers in session for final report
@@ -143,10 +153,8 @@ def create_agent_step1():
             response = agent_controller.get_report()
             if isinstance(response, tuple):
                 report = response[0].get_json()['report']
-                session['report'] = report
             else:
                 report = response.get_json()['report']
-                session['report'] = report
                         
             return jsonify({
                 "is_complete": True,
@@ -154,12 +162,7 @@ def create_agent_step1():
             }), 200
 
         if response and isinstance(response, tuple) and response[1] == 200:
-            print(response, "response[0]")
             session['step'] = step + 1
-            print(session['step'], "step in session")
-            
-            print(session, "session second")
-            
             return response[0], 200
         
         return response
@@ -172,6 +175,7 @@ def create_agent_step1():
         }), 500
 
 
+
 @app.route('/agents/create/update-report', methods=['POST'])
 @cross_origin()
 def create_agent_step2():
@@ -182,16 +186,20 @@ def create_agent_step2():
 @cross_origin(supports_credentials=True)
 # @cross_origin()
 def create_agent_step3():
+    
+    print('yyyyyyyyyyyyyyyyyyyy')
     if request.method == 'GET':
         return agent_controller.get_goals()
 
     response = agent_controller.create_agent()
 
     if response[1] == 202:
-        session.clear()
+        # session.clear()
         pass
 
     return response
+
+
 
 # @app.route('/agents/skills', methods=['POST', 'GET'])
 # @cross_origin(supports_credentials=True)
@@ -289,7 +297,43 @@ def chat_with_alert():
 @cross_origin(supports_credentials=True)
 def get_agents():
     return agent_controller.get_agents()
-    
+
+# Group Chat Endpoints
+@app.route('/group-chats/', methods=['GET', 'POST'])
+@cross_origin(supports_credentials=True)
+def group_chats():
+    """
+    GET: List all group chats
+    POST: Create a new group chat
+    """
+    if request.method == 'GET':
+        return group_chat_controller.get_all_group_chats()
+    else:  # POST
+        return group_chat_controller.create_group_chat()
+
+@app.route('/group-chats/chat', methods=['POST'])
+@cross_origin(supports_credentials=True)
+def handle_chat():
+    """
+    Send a message in a group chat
+    """
+    return group_chat_controller.handle_group_chat()
+
+@app.route('/group-chats/<chat_id>/messages', methods=['GET'])
+@cross_origin(supports_credentials=True)
+def get_chat_history(chat_id):
+    """
+    Get message history for a specific chat
+    """
+    return group_chat_controller.get_chat_history(chat_id)
+
+@app.route('/group-chats/refresh-cache', methods=['POST'])
+@cross_origin(supports_credentials=True)
+def refresh_agent_cache():
+    """
+    Force refresh the agent descriptions cache
+    """
+    return group_chat_controller.refresh_agent_cache()
 
 if __name__ == '__main__':
     app.run(debug=True)
